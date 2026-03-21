@@ -9,3 +9,9 @@ Cats vs. Spoons: a tower defense game
     - Money system (costs gold to buy cats, earns gold by killing spoons)
     - Visuals (sprites, ghost mouse)
     - Lives (starting hearts, losing hearts, increasing difficulty, death)
+- Struggles
+    - I actually had to pay more attention to the existing code this time since there was a rule to keep 75% of the code the same. I couldn't copy paste the entire code from AI since that would just completely rewrite the original code
+    - I wouldn've struggled more with this if the original coder didn't leave as many comments but they did and that helped a lot!
+- Next steps
+    - Currently I don't have most of the mechanics of a tower defense game. Within each level it needs a better background, powerups, and a non-linear scaling of enemy difficulty. 
+    - Outside of that, it needs multiple levels and a way for the levels to be randomized yet get increasingly more difficult. 
