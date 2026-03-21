@@ -1,38 +1,75 @@
 import pygame
 import sys
 import math
+import random
 
 # --- 1. Constants & Configuration ---
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-FPS = 60
+FPS = 50
 BG_COLOR = (30, 30, 30)
 PATH_COLOR = (100, 100, 100)
 
-# Custom event for spawning
+STARTING_GOLD = 100
+STARTING_LIVES = 10
+TOWER_COST = 25
+ENEMY_REWARD = 5
+
+BASE_HEALTH = 30
+HEALTH_STEP = 10
+
 SPAWN_ENEMY_EVENT = pygame.USEREVENT + 1
 SPAWN_DELAY = 1500 
 
-#path is a list of 4 points, when an enemy reaches each point they change their direction
 PATH = [(0, 0),  
         (SCREEN_WIDTH/3, SCREEN_HEIGHT*3/4), 
         (SCREEN_WIDTH*2/3, SCREEN_HEIGHT/2),
         (SCREEN_WIDTH, SCREEN_HEIGHT)]
 
-# --- 2. Classes ---
+# --- 2. Sprite Loading & Handling ---
+pygame.init()
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Cats vs Spoons")
+
+CAT_VARIATIONS = []
+try:
+    full_sheet = pygame.image.load("cats.png").convert_alpha()
+    sheet_w, sheet_h = full_sheet.get_size() 
+    CAT_W = sheet_w // 3
+    CAT_H = sheet_h // 2
+    
+    print(f"Image loaded: {sheet_w}x{sheet_h}. Individual cat size: {CAT_W}x{CAT_H}")
+
+    for row in range(2):
+        for col in range(3):
+            rect = pygame.Rect(col * CAT_W, row * CAT_H, CAT_W, CAT_H)
+            cat_surf = full_sheet.subsurface(rect)
+            CAT_VARIATIONS.append(pygame.transform.scale(cat_surf, (50, 50)))
+    
+    SPOON_IMG = pygame.image.load("spoon.png").convert_alpha()
+    SPOON_IMG = pygame.transform.scale(SPOON_IMG, (40, 40))
+
+except Exception as e:
+    print(f"Error: {e}")
+    backup = pygame.Surface((50, 50))
+    backup.fill((0, 255, 0))
+    CAT_VARIATIONS = [backup]
+    SPOON_IMG = pygame.Surface((40, 40))
+    SPOON_IMG.fill((200, 200, 200))
+
+# --- 3. Classes ---
 class Enemy:
-    def __init__(self, path):
+    def __init__(self, path, spawn_number):
         self.path = path
         self.target_index = 0
         self.x, self.y = path[0]
         self.speed = 2
-        self.radius = 15
-        self.color = (255, 50, 50)
-        self.health = 30
+        self.angle = 0
+        self.max_health = BASE_HEALTH + (spawn_number * HEALTH_STEP)
+        self.health = self.max_health
         self.reached_end = False 
 
     def update(self):
-        # Move toward waypoint
         if self.target_index < len(self.path):
             target_x, target_y = self.path[self.target_index]
             dx, dy = target_x - self.x, target_y - self.y
@@ -41,109 +78,115 @@ class Enemy:
             if distance > self.speed:
                 self.x += (dx / distance) * self.speed
                 self.y += (dy / distance) * self.speed
+                # Calculate angle for rotation
+                self.angle = math.degrees(math.atan2(-dy, dx)) - 45 # -45 to align sprite
             else:
                 self.target_index += 1
         else:
             self.reached_end = True
         
-        # Check for death
-        if self.health <= 0:
-            self.reached_end = True
-
     def draw(self, surface):
-        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.radius)
+        # Rotate spoon towards movement direction
+        rotated_spoon = pygame.transform.rotate(SPOON_IMG, self.angle)
+        rect = rotated_spoon.get_rect(center=(int(self.x), int(self.y)))
+        surface.blit(rotated_spoon, rect.topleft)
+        
+        # Health bar
+        bar_w = 30
+        health_pct = max(0, self.health / self.max_health)
+        pygame.draw.rect(surface, (255, 0, 0), (self.x - 15, self.y - 25, bar_w, 4))
+        pygame.draw.rect(surface, (0, 255, 0), (self.x - 15, self.y - 25, int(bar_w * health_pct), 4))
 
 class Tower:
     def __init__(self, x, y):
-        self.x = x
-        self.y = y
+        self.x, self.y = x, y
         self.range = 150
         self.damage = 10
-        self.color = (0, 150, 255) 
-        self.cooldown = 500  
+        self.cooldown = 800  
         self.last_shot = pygame.time.get_ticks()
         self.target = None
+        self.image = random.choice(CAT_VARIATIONS)
 
-    def find_target(self, enemies):
+    def update(self, enemies):
         self.target = None
         for enemy in enemies:
-            dist = math.sqrt((enemy.x - self.x)**2 + (enemy.y - self.y)**2)
+            dist = math.hypot(enemy.x - self.x, enemy.y - self.y)
             if dist <= self.range:
                 self.target = enemy
                 break 
 
-    def update(self, enemies):
-        self.find_target(enemies)
         now = pygame.time.get_ticks()
         if self.target and now - self.last_shot > self.cooldown:
             self.target.health -= self.damage
             self.last_shot = now
 
     def draw(self, surface):
-        # Range circle
-        pygame.draw.circle(surface, (50, 50, 50), (self.x, self.y), self.range, 1)
-        # Tower base
-        pygame.draw.rect(surface, self.color, (self.x - 20, self.y - 20, 40, 40))
-        # Visual laser
+        pygame.draw.circle(surface, (80, 80, 80), (self.x, self.y), self.range, 1)
+        
+        rect = self.image.get_rect(center=(self.x, self.y))
+        surface.blit(self.image, rect.topleft)
+        
         if self.target:
-            pygame.draw.line(surface, (255, 255, 0), (self.x, self.y), (self.target.x, self.target.y), 2)    
-
-# --- 3. Setup ---
-pygame.init()
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Tower Defense")
-clock = pygame.time.Clock()
-
-pygame.time.set_timer(SPAWN_ENEMY_EVENT, SPAWN_DELAY)
-
-enemies = []
-towers = []
+            pygame.draw.line(surface, (255, 255, 0), (self.x, self.y), (self.target.x, self.target.y), 2)
 
 # --- 4. Main Game Loop ---
-running = True
-while running:
-    # --- A. Event Handling ---
+pygame.display.set_caption("Cats vs Spoons TD")
+clock = pygame.time.Clock()
+font = pygame.font.SysFont("Arial", 22, bold=True)
+pygame.time.set_timer(SPAWN_ENEMY_EVENT, SPAWN_DELAY)
+
+enemies, towers = [], []
+gold, lives, spawn_count = STARTING_GOLD, STARTING_LIVES, 0
+
+while True:
+    mx, my = pygame.mouse.get_pos()
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            running = False
+            pygame.quit(); sys.exit()
         
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                running = False
+        if event.type == SPAWN_ENEMY_EVENT and lives > 0:
+            spawn_count += 1
+            enemies.append(Enemy(PATH, spawn_count))
 
-        if event.type == SPAWN_ENEMY_EVENT:
-            enemies.append(Enemy(PATH))
+        if event.type == pygame.MOUSEBUTTONDOWN and lives > 0:
+            if gold >= TOWER_COST:
+                towers.append(Tower(mx, my))
+                gold -= TOWER_COST
 
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            mx, my = pygame.mouse.get_pos()
-            towers.append(Tower(mx, my))
-
-    # --- B. Game Logic (Update) ---
-    # Update Enemies and remove dead ones
-    for enemy in enemies[:]: 
-        enemy.update()
-        if enemy.reached_end:
-            enemies.remove(enemy)
-            
-    # Update Towers
-    for tower in towers:
-        tower.update(enemies)
+    # Logic
+    if lives > 0:
+        for e in enemies[:]: 
+            e.update()
+            if e.reached_end:
+                lives -= 1; enemies.remove(e)
+            elif e.health <= 0:
+                gold += ENEMY_REWARD; enemies.remove(e)
+        for t in towers: t.update(enemies)
     
-    # --- C. Rendering (Draw) ---
+    # Draw
     screen.fill(BG_COLOR)
-    
-    # Draw Background Path
-    pygame.draw.lines(screen, PATH_COLOR, False, PATH, 5)
-    
-    # Draw Game Objects
-    for tower in towers:
-        tower.draw(screen)
+    pygame.draw.lines(screen, PATH_COLOR, False, PATH, 8)
+    for t in towers: t.draw(screen)
+    for e in enemies: e.draw(screen)
 
-    for enemy in enemies:
-        enemy.draw(screen)
+    # Ghost Cat
+    if lives > 0:
+        ghost_cat = CAT_VARIATIONS[0].copy() 
+        ghost_cat.set_alpha(150)
+        
+        if gold < TOWER_COST:
+            ghost_cat.fill((255, 0, 0, 150), special_flags=pygame.BLEND_RGBA_MULT)
+            
+        screen.blit(ghost_cat, (mx-25, my-25))
+
+    # UI
+    screen.blit(font.render(f"GOLD: ${gold}", True, (255, 215, 0)), (20, 20))
+    screen.blit(font.render(f"LIVES: {lives}", True, (255, 50, 50)), (20, 45))
+    screen.blit(font.render(f"WAVE STRENGTH: {spawn_count}", True, (200, 200, 200)), (20, 70))
+
+    if lives <= 0:
+        over_text = font.render("GAME OVER - YOU SURVIVED " + str(spawn_count) + " ENEMIES", True, (255, 255, 255))
+        screen.blit(over_text, (SCREEN_WIDTH//2 - 200, SCREEN_HEIGHT//2))
 
     pygame.display.flip()
     clock.tick(FPS)
-
-pygame.quit()
-sys.exit()
